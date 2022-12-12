@@ -16,6 +16,10 @@ type MapTask struct {
 }
 
 type ReduceTask struct {
+	// Reducer task id is also the reducer shard number.
+	TaskId int
+	// InputFiles[i] stores the tempfile coming from Mapper task i
+	InputFiles map[int]string
 }
 
 type TaskType int
@@ -31,13 +35,29 @@ type WorkerTask struct {
 	ReduceTask ReduceTask
 }
 
-// Add your RPC definitions here.
+//
+// The GetTask RPC interface
+//
 type GetTaskRequest struct {
 	WorkerId string
 }
 
 type GetTaskResponse struct {
 	Task WorkerTask
+}
+
+//
+// The TaskDone RPC interface
+//
+type TaskDoneRequest struct {
+	WorkerId string
+	TaskDone WorkerTask
+	// This stores the temp file output from the mapper as a map from reduce shard to filename
+	TempFiles map[int]string
+}
+
+type TaskDoneResponse struct {
+	Ok bool
 }
 
 // Cook up a unique-ish UNIX-domain socket name

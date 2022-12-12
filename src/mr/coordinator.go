@@ -1,6 +1,7 @@
 package mr
 
 import "errors"
+import "fmt"
 import "log"
 import "net"
 import "os"
@@ -13,19 +14,23 @@ const (
 	Unassigned = iota
 	Assigned
 	Abandoned
+	Done
 )
 
-type Task struct {
-	map_task  MapTask
+// This is the coordinator's internal representation of a task. Wraps around the
+// the WorkTask construct from the RPC interface.
+type InternalTask struct {
+	task      WorkerTask
 	worker_id string
 	status    Status
 }
 
 type Coordinator struct {
 	// Your definitions here.
-	input_files []string
-	n_reduce    int
-	map_tasks   []Task
+	input_files  []string
+	n_reduce     int
+	map_tasks    []InternalTask
+	reduce_tasks []InternalTask
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -34,22 +39,75 @@ type Coordinator struct {
 // Task assignment RPC
 func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
 	// TODO: lock this method or the underlying data structure
-	map_task_i := -1
+	var map_task_found *InternalTask
 	for i, map_task := range c.map_tasks {
 		if map_task.status == Unassigned {
-			map_task_i = i
+			map_task_found = &c.map_tasks[i]
 			break
 		}
 	}
-	if map_task_i == -1 {
+	if map_task_found == nil {
 		return errors.New("No more tasks")
 	}
 	// Update internal status
-	c.map_tasks[map_task_i].worker_id = request.WorkerId
-	c.map_tasks[map_task_i].status = Assigned
+	map_task_found.worker_id = request.WorkerId
+	map_task_found.status = Assigned
+
+	// TODO: add code to deal out reducer tasks when map tasks are all completed.
+
 	// Handle response
-	reply.Task.Type = Mapper
-	reply.Task.MapTask = c.map_tasks[map_task_i].map_task
+	reply.Task = map_task_found.task
+	return nil
+}
+
+func (c *Coordinator) SendMapOutputToReduceTasks(map_task_id int, temp_files map[int]string) error {
+	for r_shard, fname := range temp_files {
+		if !(r_shard >=0 && r_shard <= len(c.reduce_tasks)) {
+			return errors.New(fmt.Sprintf("Invalid reduce shard number %d", r_shard))
+		}
+		
+		reduce_task := &c.reduce_tasks[r_shard].task.ReduceTask
+		old_fname, exists := reduce_task.InputFiles[map_task_id]
+		if exists {
+			log.Printf("Overwriting existing input for reduce task %d from map task %d: %s", r_shard, map_task_id, old_fname)
+		}
+		reduce_task.InputFiles[map_task_id] = fname
+	}
+	return nil
+}
+
+//
+// Marking task as done RPC
+func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse) error {
+	task_done := &request.TaskDone
+	if task_done.Type == Mapper {
+		task_id := task_done.MapTask.TaskId
+		if !(task_id >= 0 && task_id < len(c.map_tasks)) {
+			return errors.New("Invalid map task id")
+		}
+		internal_task := &c.map_tasks[task_id]
+		if internal_task.worker_id != request.WorkerId {
+			return errors.New("Worker id is not supposed to be working on Map task")
+		}
+		internal_task.status = Done
+		err := c.SendMapOutputToReduceTasks(task_id, request.TempFiles)
+		if err != nil {
+			reply.Ok = false
+			return err
+		}
+	} else {
+		// Type must be reducer
+		task_id := task_done.ReduceTask.TaskId
+		if !(task_id >= 0 && task_id < len(c.reduce_tasks)) {
+			return errors.New("Invalid reduce task id")
+		}
+		internal_task := &c.reduce_tasks[task_id]
+		if internal_task.worker_id != request.WorkerId {
+			return errors.New("Worker id is not supposed to be working on Reduce task")
+		}
+		internal_task.status = Done
+	}
+	reply.Ok = true
 	return nil
 }
 
@@ -81,17 +139,44 @@ func (c *Coordinator) Done() bool {
 	return ret
 }
 
+// Creates a new map task
+func NewMapTask(task_id int, input_file string, n_reduce int) WorkerTask {
+	return WorkerTask{
+		Mapper,
+		MapTask{
+			task_id,
+			input_file,
+			n_reduce,
+		},
+		ReduceTask{},
+	}
+}
+
+// Creates a new reduce task with InputFiles initialized
+func NewReduceTask(task_id int, n_mapper int) WorkerTask {
+	return WorkerTask{
+		Reducer,
+		MapTask{},
+		ReduceTask{task_id, make(map[int]string)},
+	}
+
+}
+
 //
 // create a Coordinator.
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	// Make len(files) number of map tasks.
-	c := Coordinator{files, nReduce, make([]Task, len(files))}
+	// Make len(files) number of map tasks and nReduce number of reduce tasks
+	c := Coordinator{files, nReduce, make([]InternalTask, len(files)), make([]InternalTask, nReduce)}
 	for i := 0; i < len(files); i++ {
 		c.map_tasks[i] =
-			Task{MapTask{i, files[i], c.n_reduce}, "", Unassigned}
+			InternalTask{NewMapTask(i, files[i], nReduce), "", Unassigned}
+	}
+	for i := 0; i < nReduce; i++ {
+		c.reduce_tasks[i] =
+			InternalTask{NewReduceTask(i, len(files)), "", Unassigned}
 	}
 
 	// Your code here.

@@ -33,11 +33,13 @@ func get_reducer_shard(key string, n_reduce int) int {
 }
 
 // Write the output of mapper to tempfiles. n_reduce is the # of reducer shards
-func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) {
+func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) map[int]string {
+	temp_files := make(map[int]string)
 	// encoders[i] stores the json encoder for reducer shard i
 	encoders := make([]*json.Encoder, n_reduce)
 	for i := 0; i < n_reduce; i++ {
 		fname := fmt.Sprintf("mr-tmp/mr-temp-%d-%d", map_task_id, i)
+		temp_files[i] = fname
 		file, err := os.Create(fname)
 		if err != nil {
 			log.Fatalf("cannot open %v", fname)
@@ -52,6 +54,7 @@ func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) {
 			log.Fatalf("json encoding error on %v", kv)
 		}
 	}
+	return temp_files
 }
 
 //
@@ -80,10 +83,12 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 		file.Close()
 		kva := mapf(filename, string(content))
-		write_kvs(kva, map_task.TaskId, map_task.NReduce)
+		temp_files := write_kvs(kva, map_task.TaskId, map_task.NReduce)
+		TaskDone(worker_id, worker_task, temp_files)
 	}
 }
 
+// Calls the GetTask RPC
 func GetTask(worker_id string) (WorkerTask, error) {
 	request := GetTaskRequest{worker_id}
 	reply := GetTaskResponse{}
@@ -96,6 +101,14 @@ func GetTask(worker_id string) (WorkerTask, error) {
 		return reply.Task, nil
 	}
 	return WorkerTask{}, err
+}
+
+// Calls the TaskDone RPC
+func TaskDone(worker_id string, task_done WorkerTask, temp_files map[int]string) {
+	request := TaskDoneRequest{worker_id, task_done, temp_files}
+	reply := TaskDoneResponse{}
+
+	call("Coordinator.TaskDone", &request, &reply)
 }
 
 //
