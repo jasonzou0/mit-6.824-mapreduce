@@ -9,14 +9,12 @@ package mr
 import "os"
 import "strconv"
 
-
 type MapTask struct {
-	TaskId int
+	TaskId    int
 	InputFile string
 }
 
 type ReduceTask struct {
-
 }
 
 type TaskType int
@@ -27,8 +25,8 @@ const (
 )
 
 type WorkerTask struct {
-	Type TaskType
-	MapTask MapTask
+	Type       TaskType
+	MapTask    MapTask
 	ReduceTask ReduceTask
 }
 

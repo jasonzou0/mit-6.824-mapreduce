@@ -4,7 +4,8 @@ import "fmt"
 import "log"
 import "net/rpc"
 import "hash/fnv"
-
+import "os"
+import "strconv"
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,21 +25,21 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+	
+	hostname,_ := os.Hostname()
+	worker_id := hostname + ":" + strconv.Itoa(os.Getpid())
 
 	// Your worker implementation here.
-	GetTask()
+	GetTask(worker_id)
 }
 
-
-func GetTask() {
-	// TODO: use an actual worker id (process id or hostname:port number)
-	request := GetTaskRequest{"number1"}
+func GetTask(worker_id string) {
+	request := GetTaskRequest{worker_id}
 	reply := GetTaskResponse{}
 
 	ok := call("Coordinator.GetTask", &request, &reply)
@@ -46,9 +47,8 @@ func GetTask() {
 		if reply.Task.Type == Mapper {
 			fmt.Printf("Get back Map task with file: %s\n", reply.Task.MapTask.InputFile)
 		}
-	} 
+	}
 }
-
 
 //
 // send an RPC request to the coordinator, wait for the response.

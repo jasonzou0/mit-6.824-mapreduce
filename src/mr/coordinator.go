@@ -11,14 +11,14 @@ type Status int
 
 const (
 	Unassigned = iota
-	Assigned 
-	Abandoned 
+	Assigned
+	Abandoned
 )
 
 type Task struct {
-	map_task MapTask
+	map_task  MapTask
 	worker_id string
-	status Status
+	status    Status
 }
 
 type Coordinator struct {
@@ -52,7 +52,6 @@ func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) e
 	reply.Task.MapTask = c.map_tasks[map_task_i].map_task
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
