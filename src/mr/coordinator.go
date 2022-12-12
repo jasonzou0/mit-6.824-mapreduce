@@ -62,10 +62,10 @@ func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) e
 
 func (c *Coordinator) SendMapOutputToReduceTasks(map_task_id int, temp_files map[int]string) error {
 	for r_shard, fname := range temp_files {
-		if !(r_shard >=0 && r_shard <= len(c.reduce_tasks)) {
+		if !(r_shard >= 0 && r_shard <= len(c.reduce_tasks)) {
 			return errors.New(fmt.Sprintf("Invalid reduce shard number %d", r_shard))
 		}
-		
+
 		reduce_task := &c.reduce_tasks[r_shard].task.ReduceTask
 		old_fname, exists := reduce_task.InputFiles[map_task_id]
 		if exists {
@@ -83,7 +83,6 @@ func task_type_to_str(task_type TaskType) string {
 		return "Reduce"
 	}
 }
-
 
 //
 // Marking task as done RPC

@@ -66,9 +66,12 @@ func Worker(mapf func(string, string) []KeyValue,
 	hostname, _ := os.Hostname()
 	worker_id := hostname + ":" + strconv.Itoa(os.Getpid())
 
-	// Your worker implementation here.
-	worker_task, _ := GetTask(worker_id)
+	//
+	// TODO: Put this code in a loop that fetches new tasks
+	//
+
 	// TODO: properly handle error
+	worker_task, _ := GetTask(worker_id)
 
 	if worker_task.Type == Mapper {
 		map_task := worker_task.MapTask
@@ -86,6 +89,8 @@ func Worker(mapf func(string, string) []KeyValue,
 		temp_files := write_kvs(kva, map_task.TaskId, map_task.NReduce)
 		TaskDone(worker_id, worker_task, temp_files)
 	}
+
+	// TODO: implement reducer task work
 }
 
 // Calls the GetTask RPC
