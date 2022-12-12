@@ -27,28 +27,27 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-// Get the temp output filename for any KeyValue of given key
-func temp_filename(task_id int, key string, n_reduce int) string {
-	return fmt.Sprintf("mr-tmp/mr-temp-%d-%d", task_id, ihash(key) % n_reduce)
+// Get the reducer shard number
+func get_reducer_shard(key string, n_reduce int) int {
+	return ihash(key) % n_reduce
 }
 
 // Write the output of mapper to tempfiles. n_reduce is the # of reducer shards
 func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) {
-	fname_to_encoder := make(map[string]*json.Encoder)
+	// encoders[i] stores the json encoder for reducer shard i 
+	encoders := make([]*json.Encoder, n_reduce)
+	for i := 0; i < n_reduce; i++ {
+		fname := fmt.Sprintf("mr-tmp/mr-temp-%d-%d", map_task_id, i)
+		file, err := os.Create(fname)
+		if err != nil {
+			log.Fatalf("cannot open %v", fname)
+		}
+		defer file.Close()
+		encoders[i] = json.NewEncoder(file)		
+	}
 	
 	for _, kv := range kvs {
-		fname := temp_filename(map_task_id, kv.Key, n_reduce)
-		encoder, ok := fname_to_encoder[fname]
-		if !ok {
-			file2, err := os.Create(fname)
-			if err != nil {
-				log.Fatalf("cannot open %v", fname)
-			}
-			defer file2.Close()
-			encoder = json.NewEncoder(file2)
-			fname_to_encoder[fname] = encoder
-		}
-		err := encoder.Encode(&kv)
+		err := encoders[get_reducer_shard(kv.Key, n_reduce)].Encode(&kv)
 		if err != nil {
 			log.Fatalf("json encoding error on %v", kv)
 		}
