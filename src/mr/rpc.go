@@ -15,13 +15,30 @@ type MapTask struct {
 	InputFile string
 }
 
+type ReduceTask struct {
+
+}
+
+type TaskType int
+
+const (
+	Mapper = iota
+	Reducer
+)
+
+type WorkerTask struct {
+	Type TaskType
+	MapTask MapTask
+	ReduceTask ReduceTask
+}
+
 // Add your RPC definitions here.
 type GetTaskRequest struct {
 	WorkerId string
 }
 
 type GetTaskResponse struct {
-	MTask MapTask
+	Task WorkerTask
 }
 
 // Cook up a unique-ish UNIX-domain socket name

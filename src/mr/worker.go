@@ -43,7 +43,9 @@ func GetTask() {
 
 	ok := call("Coordinator.GetTask", &request, &reply)
 	if ok {
-		fmt.Printf("Get back task with file: %s\n", reply.MTask.InputFile)
+		if reply.Task.Type == Mapper {
+			fmt.Printf("Get back Map task with file: %s\n", reply.Task.MapTask.InputFile)
+		}
 	} 
 }
 

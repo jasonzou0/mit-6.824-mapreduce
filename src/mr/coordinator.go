@@ -31,34 +31,26 @@ type Coordinator struct {
 // Your code here -- RPC handlers for the worker to call.
 
 //
-// an example RPC handler.
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
-}
-
-
-//
 // Task assignment RPC
 func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
 	// TODO: lock this method or the underlying data structure
-	assign_i := -1
+	map_task_i := -1
 	for i, map_task := range c.map_tasks {
 		if map_task.status == Unassigned {
-			assign_i = i
+			map_task_i = i
 			break
 		}
 	}
-	if assign_i == -1 {
+	if map_task_i == -1 {
 		return errors.New("No more tasks")
 	}
 	// Update internal status
-	c.map_tasks[assign_i].worker_id = request.WorkerId
-	c.map_tasks[assign_i].status = Assigned
+	c.map_tasks[map_task_i].worker_id = request.WorkerId
+	c.map_tasks[map_task_i].status = Assigned
 	// Handle response
-	reply.MTask = c.map_tasks[assign_i].map_task
+	reply.Task.Type = Mapper
+	reply.Task.MapTask = c.map_tasks[map_task_i].map_task
 	return nil
-	
 }
 
 
