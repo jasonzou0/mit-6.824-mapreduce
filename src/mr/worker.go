@@ -88,9 +88,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		kva := mapf(filename, string(content))
 		temp_files := write_kvs(kva, map_task.TaskId, map_task.NReduce)
 		TaskDone(worker_id, worker_task, temp_files)
+	} else {
+		// TODO: implement reducer task work
 	}
-
-	// TODO: implement reducer task work
 }
 
 // Calls the GetTask RPC

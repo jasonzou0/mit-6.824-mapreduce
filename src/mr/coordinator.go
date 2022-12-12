@@ -28,35 +28,56 @@ type InternalTask struct {
 type Coordinator struct {
 	// Your definitions here.
 	input_files  []string
-	n_reduce     int
 	map_tasks    []InternalTask
 	reduce_tasks []InternalTask
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
-//
-// Task assignment RPC
-func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
-	// TODO: lock this method or the underlying data structure
+// Get an map task that is available to be assigned
+func (c *Coordinator) GetAvailableMapTask() *InternalTask {
 	var map_task_found *InternalTask
-	for i, map_task := range c.map_tasks {
-		if map_task.status == Unassigned {
+	for i := 0; i < len(c.map_tasks); i++ {
+		if c.map_tasks[i].status == Unassigned {
 			map_task_found = &c.map_tasks[i]
 			break
 		}
 	}
-	if map_task_found == nil {
-		return errors.New("No more tasks")
+	return map_task_found
+}
+
+// Get a reduce task that is available to be assigned
+func (c *Coordinator) GetAvailableReduceTask() *InternalTask {
+	var reduce_task_found *InternalTask
+	n_map := len(c.map_tasks)
+	
+	for i := 0; i < len(c.reduce_tasks); i++ {
+		if c.reduce_tasks[i].status == Unassigned && n_map == len(c.reduce_tasks[i].task.ReduceTask.InputFiles) {
+			reduce_task_found = &c.reduce_tasks[i]
+			break
+		}
+	}
+	return reduce_task_found
+}
+
+
+//
+// Task assignment RPC
+func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
+	// TODO: lock this method or the underlying data structure
+	task_found := c.GetAvailableMapTask()
+	if task_found == nil {
+		log.Printf("No more Map tasks. Pinging reduce tasks..")
+		task_found = c.GetAvailableReduceTask()
+	}
+	if task_found == nil {
+		return errors.New("No more tasks!")
 	}
 	// Update internal status
-	map_task_found.worker_id = request.WorkerId
-	map_task_found.status = Assigned
-
-	// TODO: add code to deal out reducer tasks when map tasks are all completed.
-
+	task_found.worker_id = request.WorkerId
+	task_found.status = Assigned
 	// Handle response
-	reply.Task = map_task_found.task
+	reply.Task = task_found.task
 	return nil
 }
 
@@ -180,7 +201,7 @@ func NewReduceTask(task_id int, n_mapper int) WorkerTask {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Make len(files) number of map tasks and nReduce number of reduce tasks
-	c := Coordinator{files, nReduce, make([]InternalTask, len(files)), make([]InternalTask, nReduce)}
+	c := Coordinator{files, make([]InternalTask, len(files)), make([]InternalTask, nReduce)}
 	for i := 0; i < len(files); i++ {
 		c.map_tasks[i] =
 			InternalTask{NewMapTask(i, files[i], nReduce), "", Unassigned}
