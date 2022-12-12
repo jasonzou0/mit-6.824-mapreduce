@@ -50,7 +50,7 @@ func (c *Coordinator) GetAvailableMapTask() *InternalTask {
 func (c *Coordinator) GetAvailableReduceTask() *InternalTask {
 	var reduce_task_found *InternalTask
 	n_map := len(c.map_tasks)
-	
+
 	for i := 0; i < len(c.reduce_tasks); i++ {
 		if c.reduce_tasks[i].status == Unassigned && n_map == len(c.reduce_tasks[i].task.ReduceTask.InputFiles) {
 			reduce_task_found = &c.reduce_tasks[i]
@@ -59,7 +59,6 @@ func (c *Coordinator) GetAvailableReduceTask() *InternalTask {
 	}
 	return reduce_task_found
 }
-
 
 //
 // Task assignment RPC

@@ -23,9 +23,6 @@ func main() {
 	}
 
 	mapf, reducef := loadPlugin(os.Args[1])
-
-	// TODO: keep track of worker id so that it can be sent as part of RPC to the coordinator
-	// easiest thing would be to use the process id.
 	mr.Worker(mapf, reducef)
 }
 

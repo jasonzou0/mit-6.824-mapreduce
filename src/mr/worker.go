@@ -7,6 +7,7 @@ import "hash/fnv"
 import "encoding/json"
 import "os"
 import "io/ioutil"
+import "sort"
 import "strconv"
 
 //
@@ -16,6 +17,14 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 //
 // use ihash(key) % NReduce to choose the reduce
@@ -57,39 +66,102 @@ func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) map[int]string {
 	return temp_files
 }
 
+func read_kvs(fname string) []KeyValue {
+	file, err := os.Open(fname)
+	if err != nil {
+		log.Fatalf("Cannot open %v", fname)
+	}
+	defer file.Close()
+	dec := json.NewDecoder(file)
+	kva := []KeyValue{}
+	for {
+		var kv KeyValue
+		if err2 := dec.Decode(&kv); err2 != nil {
+			break
+		}
+		kva = append(kva, kv)
+	}
+	return kva
+}
+
 //
 // main/mrworker.go calls this function.
 //
+
+func handle_map_task(worker_id string, mapf func(string, string) []KeyValue, map_task *MapTask) {
+	filename := map_task.InputFile
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", filename)
+	}
+	file.Close()
+	kva := mapf(filename, string(content))
+	temp_files := write_kvs(kva, map_task.TaskId, map_task.NReduce)
+	// Calls RPC to communicate Map task done.
+	TaskDone(worker_id, WorkerTask{Mapper, *map_task, ReduceTask{}}, temp_files)
+}
+
+func handle_reduce_task(worker_id string, reducef func(string, []string) string, reduce_task *ReduceTask) {
+	intermediate := []KeyValue{}
+	for _, filename := range reduce_task.InputFiles {
+		kva := read_kvs(filename)
+		intermediate = append(intermediate, kva...)
+	}
+
+	sort.Sort(ByKey(intermediate))
+
+	oname := fmt.Sprintf("mr-out-%d", reduce_task.TaskId)
+	ofile, _ := os.Create(oname)
+
+	//
+	// call Reduce on each distinct key in intermediate[],
+	// and print the result to mr-out-i.
+	//
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(intermediate[i].Key, values)
+
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+		i = j
+	}
+
+	ofile.Close()
+	// Calls RPC to communicate Reduce task done.
+	TaskDone(worker_id, WorkerTask{Reducer, MapTask{}, *reduce_task}, map[int]string{})
+}
+
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	hostname, _ := os.Hostname()
 	worker_id := hostname + ":" + strconv.Itoa(os.Getpid())
 
-	//
-	// TODO: Put this code in a loop that fetches new tasks
-	//
+	for {
+		worker_task, err := GetTask(worker_id)
 
-	// TODO: properly handle error
-	worker_task, _ := GetTask(worker_id)
-
-	if worker_task.Type == Mapper {
-		map_task := worker_task.MapTask
-		filename := map_task.InputFile
-		file, err := os.Open(filename)
 		if err != nil {
-			log.Fatalf("cannot open %v", filename)
+			fmt.Printf("Getting task failed. Exiting.")
+			return
 		}
-		content, err := ioutil.ReadAll(file)
-		if err != nil {
-			log.Fatalf("cannot read %v", filename)
+		if worker_task.Type == Mapper {
+			handle_map_task(worker_id, mapf, &worker_task.MapTask)
+		} else {
+			handle_reduce_task(worker_id, reducef, &worker_task.ReduceTask)
 		}
-		file.Close()
-		kva := mapf(filename, string(content))
-		temp_files := write_kvs(kva, map_task.TaskId, map_task.NReduce)
-		TaskDone(worker_id, worker_task, temp_files)
-	} else {
-		// TODO: implement reducer task work
 	}
 }
 
