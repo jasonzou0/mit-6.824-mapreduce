@@ -1,15 +1,32 @@
 package mr
 
+import "fmt"
 import "log"
 import "net"
 import "os"
 import "net/rpc"
 import "net/http"
 
+type TaskStatus int
+
+const (
+	Unassigned = iota
+	Assigned   = 1
+	Abandoned  = 2
+)
+
+type MapTask struct {
+	task_id     int
+	input_file  string
+	task_status TaskStatus
+	worker_id   int
+}
 
 type Coordinator struct {
 	// Your definitions here.
-
+	input_files []string
+	n_reduce    int
+	map_tasks   map[int]MapTask
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -23,7 +40,6 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -50,7 +66,6 @@ func (c *Coordinator) Done() bool {
 
 	// Your code here.
 
-
 	return ret
 }
 
@@ -60,7 +75,8 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
+	c := Coordinator{files, nReduce}
+	fmt.Println(files)
 
 	// Your code here.
 
@@ -71,7 +87,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// 3. implement "get available task" rpc method - for both map and reduce tasks
 	//    each map & reduce task keeps track of the workers and their status.
 	// 4. implement "task done" rpc method - for communicating to coordinate that work is done
-	
+
 	// Q: where is the worker pool maintained??? ans: in the coordinator
 	// Q: how should the communication model work between coordinator and worker?
 	// -  get_task: worker->coordinator
@@ -82,7 +98,6 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// - coordinator will periodically check if all map tasks for a given reduce shard is complete.
 	// Q: where does the sorting of immediate data happen?
 	// - should happen in the worker. ideally there is a shuffling worker whose job is sorting.
-	
 
 	c.server()
 	return &c
