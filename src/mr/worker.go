@@ -37,15 +37,14 @@ func Worker(mapf func(string, string) []KeyValue,
 
 
 func GetTask() {
+	// TODO: use an actual worker id (process id or hostname:port number)
 	request := GetTaskRequest{"number1"}
 	reply := GetTaskResponse{}
 
 	ok := call("Coordinator.GetTask", &request, &reply)
 	if ok {
 		fmt.Printf("Get back task with file: %s\n", reply.MTask.InputFile)
-	} else {
-		fmt.Printf("No more tasks!\n")
-	}
+	} 
 }
 
 //

@@ -32,15 +32,14 @@ type Coordinator struct {
 
 //
 // an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
 }
 
 
+//
+// Task assignment RPC
 func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
 	// TODO: lock this method or the underlying data structure
 	assign_i := -1
