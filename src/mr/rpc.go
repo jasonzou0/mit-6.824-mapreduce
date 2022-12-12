@@ -12,6 +12,7 @@ import "strconv"
 type MapTask struct {
 	TaskId    int
 	InputFile string
+	NReduce   int
 }
 
 type ReduceTask struct {
