@@ -5,6 +5,7 @@ import "fmt"
 import "log"
 import "net"
 import "os"
+import "sync"
 import "net/rpc"
 import "net/http"
 
@@ -26,8 +27,8 @@ type InternalTask struct {
 }
 
 type Coordinator struct {
-	// Your definitions here.
-	input_files  []string
+	// Synchronizes access to all the tasks below
+	tasks_mu     sync.Mutex
 	map_tasks    []InternalTask
 	reduce_tasks []InternalTask
 }
@@ -64,6 +65,8 @@ func (c *Coordinator) GetAvailableReduceTask() *InternalTask {
 // Task assignment RPC
 func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
 	// TODO: lock this method or the underlying data structure
+	c.tasks_mu.Lock()
+	defer c.tasks_mu.Unlock()
 	task_found := c.GetAvailableMapTask()
 	if task_found == nil {
 		log.Printf("No more Map tasks. Pinging reduce tasks..")
@@ -107,6 +110,9 @@ func task_type_to_str(task_type TaskType) string {
 //
 // Marking task as done RPC
 func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse) error {
+	c.tasks_mu.Lock()
+	defer c.tasks_mu.Unlock()
+
 	task_done := &request.TaskDone
 	var task_id int
 	if task_done.Type == Mapper {
@@ -129,7 +135,7 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 		if task_done.Type != Reducer {
 			log.Fatalf("Expected Reducer task type but actually saw: %v", task_done.Type)
 		}
-		
+
 		task_id = task_done.ReduceTask.TaskId
 		if !(task_id >= 0 && task_id < len(c.reduce_tasks)) {
 			return errors.New("Invalid reduce task id")
@@ -169,6 +175,8 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	done := true
 
+	c.tasks_mu.Lock()
+	defer c.tasks_mu.Unlock()
 	for _, itask := range append(c.map_tasks, c.reduce_tasks...) {
 		if itask.status != Done {
 			done = false
@@ -208,7 +216,7 @@ func NewReduceTask(task_id int, n_mapper int) WorkerTask {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Make len(files) number of map tasks and nReduce number of reduce tasks
-	c := Coordinator{files, make([]InternalTask, len(files)), make([]InternalTask, nReduce)}
+	c := Coordinator{map_tasks: make([]InternalTask, len(files)), reduce_tasks: make([]InternalTask, nReduce)}
 	for i := 0; i < len(files); i++ {
 		c.map_tasks[i] =
 			InternalTask{NewMapTask(i, files[i], nReduce), "", Unassigned}

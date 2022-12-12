@@ -154,7 +154,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		worker_task, err := GetTask(worker_id)
 
 		if err != nil {
-			fmt.Printf("Getting task failed. Exiting.")
+			fmt.Printf("No more tasks. Exiting.")
 			return
 		}
 		if worker_task.Type == Mapper {
