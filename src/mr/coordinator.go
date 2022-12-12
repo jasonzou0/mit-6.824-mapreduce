@@ -126,6 +126,10 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 		}
 	} else {
 		// Type must be reducer
+		if task_done.Type != Reducer {
+			log.Fatalf("Expected Reducer task type but actually saw: %v", task_done.Type)
+		}
+		
 		task_id = task_done.ReduceTask.TaskId
 		if !(task_id >= 0 && task_id < len(c.reduce_tasks)) {
 			return errors.New("Invalid reduce task id")
@@ -163,11 +167,15 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
+	done := true
 
-	// Your code here.
-
-	return ret
+	for _, itask := range append(c.map_tasks, c.reduce_tasks...) {
+		if itask.status != Done {
+			done = false
+			break
+		}
+	}
+	return done
 }
 
 // Creates a new map task

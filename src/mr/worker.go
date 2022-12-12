@@ -174,6 +174,8 @@ func GetTask(worker_id string) (WorkerTask, error) {
 	if ok {
 		if reply.Task.Type == Mapper {
 			fmt.Printf("Get back Map task with file: %s\n", reply.Task.MapTask.InputFile)
+		} else {
+			fmt.Printf("Get back Reduce task with file: %v\n", reply.Task.ReduceTask.InputFiles)
 		}
 		return reply.Task, nil
 	}
