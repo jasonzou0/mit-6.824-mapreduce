@@ -76,12 +76,22 @@ func (c *Coordinator) SendMapOutputToReduceTasks(map_task_id int, temp_files map
 	return nil
 }
 
+func task_type_to_str(task_type TaskType) string {
+	if task_type == Mapper {
+		return "Map"
+	} else {
+		return "Reduce"
+	}
+}
+
+
 //
 // Marking task as done RPC
 func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse) error {
 	task_done := &request.TaskDone
+	var task_id int
 	if task_done.Type == Mapper {
-		task_id := task_done.MapTask.TaskId
+		task_id = task_done.MapTask.TaskId
 		if !(task_id >= 0 && task_id < len(c.map_tasks)) {
 			return errors.New("Invalid map task id")
 		}
@@ -97,7 +107,7 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 		}
 	} else {
 		// Type must be reducer
-		task_id := task_done.ReduceTask.TaskId
+		task_id = task_done.ReduceTask.TaskId
 		if !(task_id >= 0 && task_id < len(c.reduce_tasks)) {
 			return errors.New("Invalid reduce task id")
 		}
@@ -107,6 +117,8 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 		}
 		internal_task.status = Done
 	}
+
+	log.Printf("%s task %d done", task_type_to_str(task_done.Type), task_id)
 	reply.Ok = true
 	return nil
 }
