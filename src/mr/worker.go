@@ -47,7 +47,7 @@ func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) map[int]string {
 	// encoders[i] stores the json encoder for reducer shard i
 	encoders := make([]*json.Encoder, n_reduce)
 	for i := 0; i < n_reduce; i++ {
-		fname := fmt.Sprintf("mr-tmp/mr-temp-%d-%d", map_task_id, i)
+		fname := fmt.Sprintf("mr-temp-%d-%d", map_task_id, i)
 		temp_files[i] = fname
 		file, err := os.Create(fname)
 		if err != nil {
