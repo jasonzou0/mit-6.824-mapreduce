@@ -34,7 +34,7 @@ func get_reducer_shard(key string, n_reduce int) int {
 
 // Write the output of mapper to tempfiles. n_reduce is the # of reducer shards
 func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) {
-	// encoders[i] stores the json encoder for reducer shard i 
+	// encoders[i] stores the json encoder for reducer shard i
 	encoders := make([]*json.Encoder, n_reduce)
 	for i := 0; i < n_reduce; i++ {
 		fname := fmt.Sprintf("mr-tmp/mr-temp-%d-%d", map_task_id, i)
@@ -43,9 +43,9 @@ func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) {
 			log.Fatalf("cannot open %v", fname)
 		}
 		defer file.Close()
-		encoders[i] = json.NewEncoder(file)		
+		encoders[i] = json.NewEncoder(file)
 	}
-	
+
 	for _, kv := range kvs {
 		err := encoders[get_reducer_shard(kv.Key, n_reduce)].Encode(&kv)
 		if err != nil {

@@ -87,12 +87,11 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{files, nReduce, []Task{}}
-
-	// Create map tasks
+	// Make len(files) number of map tasks.
+	c := Coordinator{files, nReduce, make([]Task, len(files))}
 	for i := 0; i < len(files); i++ {
-		c.map_tasks = append(c.map_tasks,
-			Task{MapTask{i, files[i], c.n_reduce}, "", Unassigned})
+		c.map_tasks[i] =
+			Task{MapTask{i, files[i], c.n_reduce}, "", Unassigned}
 	}
 
 	// Your code here.
