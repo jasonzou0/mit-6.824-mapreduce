@@ -1,32 +1,31 @@
 package mr
 
-import "fmt"
+import "errors"
 import "log"
 import "net"
 import "os"
 import "net/rpc"
 import "net/http"
 
-type TaskStatus int
+type Status int
 
 const (
 	Unassigned = iota
-	Assigned   = 1
-	Abandoned  = 2
+	Assigned 
+	Abandoned 
 )
 
-type MapTask struct {
-	task_id     int
-	input_file  string
-	task_status TaskStatus
-	worker_id   int
+type Task struct {
+	map_task MapTask
+	worker_id string
+	status Status
 }
 
 type Coordinator struct {
 	// Your definitions here.
 	input_files []string
 	n_reduce    int
-	map_tasks   map[int]MapTask
+	map_tasks   []Task
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -40,6 +39,29 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
 }
+
+
+func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) error {
+	// TODO: lock this method or the underlying data structure
+	assign_i := -1
+	for i, map_task := range c.map_tasks {
+		if map_task.status == Unassigned {
+			assign_i = i
+			break
+		}
+	}
+	if assign_i == -1 {
+		return errors.New("No more tasks")
+	}
+	// Update internal status
+	c.map_tasks[assign_i].worker_id = request.WorkerId
+	c.map_tasks[assign_i].status = Assigned
+	// Handle response
+	reply.MTask = c.map_tasks[assign_i].map_task
+	return nil
+	
+}
+
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -75,8 +97,12 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{files, nReduce}
-	fmt.Println(files)
+	c := Coordinator{files, nReduce, []Task{}}
+
+	// Create map tasks
+	for i := 0; i < len(files); i++ {
+		c.map_tasks = append(c.map_tasks, Task{MapTask{i, files[i]}, "", Unassigned})
+	}
 
 	// Your code here.
 

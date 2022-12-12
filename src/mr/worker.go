@@ -32,10 +32,20 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	GetTask()
+}
 
-	// uncomment to send the Example RPC to the coordinator.
-	CallExample()
 
+func GetTask() {
+	request := GetTaskRequest{"number1"}
+	reply := GetTaskResponse{}
+
+	ok := call("Coordinator.GetTask", &request, &reply)
+	if ok {
+		fmt.Printf("Get back task with file: %s\n", reply.MTask.InputFile)
+	} else {
+		fmt.Printf("No more tasks!\n")
+	}
 }
 
 //
