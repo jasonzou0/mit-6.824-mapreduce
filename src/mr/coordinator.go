@@ -11,6 +11,8 @@ import "net/http"
 
 type Status int
 
+var DEBUG = false
+
 const (
 	Unassigned = iota
 	Assigned
@@ -69,7 +71,6 @@ func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) e
 	defer c.tasks_mu.Unlock()
 	task_found := c.GetAvailableMapTask()
 	if task_found == nil {
-		log.Printf("No more Map tasks. Pinging reduce tasks..")
 		task_found = c.GetAvailableReduceTask()
 	}
 	if task_found == nil {
@@ -147,7 +148,9 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 		internal_task.status = Done
 	}
 
-	log.Printf("%s task %d done", task_type_to_str(task_done.Type), task_id)
+	if DEBUG {
+		log.Printf("%s task %d done", task_type_to_str(task_done.Type), task_id)
+	}
 	reply.Ok = true
 	return nil
 }

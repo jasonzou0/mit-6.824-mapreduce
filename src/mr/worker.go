@@ -154,7 +154,9 @@ func Worker(mapf func(string, string) []KeyValue,
 		worker_task, err := GetTask(worker_id)
 
 		if err != nil {
-			fmt.Printf("No more tasks. Exiting.")
+			if DEBUG {
+				fmt.Printf("No more tasks. Exiting.")
+			}
 			return
 		}
 		if worker_task.Type == Mapper {
@@ -172,10 +174,12 @@ func GetTask(worker_id string) (WorkerTask, error) {
 
 	ok, err := call("Coordinator.GetTask", &request, &reply)
 	if ok {
+		if DEBUG {
 		if reply.Task.Type == Mapper {
 			fmt.Printf("Get back Map task with file: %s\n", reply.Task.MapTask.InputFile)
 		} else {
 			fmt.Printf("Get back Reduce task with file: %v\n", reply.Task.ReduceTask.InputFiles)
+		}
 		}
 		return reply.Task, nil
 	}
