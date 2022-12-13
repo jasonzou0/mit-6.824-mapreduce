@@ -6,6 +6,7 @@ import "log"
 import "net"
 import "os"
 import "sync"
+import "time"
 import "net/rpc"
 import "net/http"
 
@@ -26,6 +27,7 @@ type InternalTask struct {
 	task      WorkerTask
 	worker_id string
 	status    Status
+	assigned_time time.Time
 }
 
 type Coordinator struct {
@@ -55,6 +57,7 @@ func (c *Coordinator) GetAvailableReduceTask() *InternalTask {
 	n_map := len(c.map_tasks)
 
 	for i := 0; i < len(c.reduce_tasks); i++ {
+		// The 2nd condition checks that the reduce task has received all the input from all the mappers.
 		if c.reduce_tasks[i].status == Unassigned && n_map == len(c.reduce_tasks[i].task.ReduceTask.InputFiles) {
 			reduce_task_found = &c.reduce_tasks[i]
 			break
@@ -79,6 +82,7 @@ func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) e
 	// Update internal status
 	task_found.worker_id = request.WorkerId
 	task_found.status = Assigned
+	task_found.assigned_time = time.Now()
 	// Handle response
 	reply.Task = task_found.task
 	return nil
@@ -155,6 +159,27 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 	return nil
 }
 
+
+// Find and unassign any orphaned tasks, for which we implement using a proxy of "10s has passed since task assignment"
+func (c *Coordinator) CleanUpOrphanTasks() {
+	MAX_TASK_WAIT_TIME := time.Second * 10
+
+	for {
+		c.tasks_mu.Lock()
+		all_tasks := append(c.map_tasks, c.reduce_tasks...)
+		for i := 0; i < len(all_tasks); i++ {
+			if all_tasks[i].status == Assigned && all_tasks[i].assigned_time.Before(time.Now().Add(-MAX_TASK_WAIT_TIME)) {
+				all_tasks[i].status = Unassigned
+				all_tasks[i].worker_id = ""
+				all_tasks[i].assigned_time = time.Time{}
+			}
+		}
+		c.tasks_mu.Unlock()
+		time.Sleep(time.Second * 2)
+	}
+}
+
+
 //
 // start a thread that listens for RPCs from worker.go
 //
@@ -169,6 +194,7 @@ func (c *Coordinator) server() {
 		log.Fatal("listen error:", e)
 	}
 	go http.Serve(l, nil)
+	go c.CleanUpOrphanTasks()
 }
 
 //
@@ -222,11 +248,17 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{map_tasks: make([]InternalTask, len(files)), reduce_tasks: make([]InternalTask, nReduce)}
 	for i := 0; i < len(files); i++ {
 		c.map_tasks[i] =
-			InternalTask{NewMapTask(i, files[i], nReduce), "", Unassigned}
+			InternalTask{
+				task: NewMapTask(i, files[i], nReduce),
+				status: Unassigned,
+			}
 	}
 	for i := 0; i < nReduce; i++ {
 		c.reduce_tasks[i] =
-			InternalTask{NewReduceTask(i, len(files)), "", Unassigned}
+			InternalTask{
+				task: NewReduceTask(i, len(files)),
+				status: Unassigned,
+			}
 	}
 
 	// Your code here.
