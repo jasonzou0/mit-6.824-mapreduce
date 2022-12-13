@@ -24,17 +24,20 @@ const (
 // This is the coordinator's internal representation of a task. Wraps around the
 // the WorkTask construct from the RPC interface.
 type InternalTask struct {
-	task      WorkerTask
-	worker_id string
-	status    Status
+	task          WorkerTask
+	worker_id     string
+	status        Status
 	assigned_time time.Time
 }
 
 type Coordinator struct {
 	// Synchronizes access to all the tasks below
-	tasks_mu     sync.Mutex
-	map_tasks    []InternalTask
-	reduce_tasks []InternalTask
+	tasks_mu sync.Mutex
+	// They are laid out so that the first n_map tasks must be map tasas and remaining ones are reducer tasks.
+	// Reducer task with task_id i is guaranteed to be in all_tasks[n_map+i]
+	all_tasks []InternalTask
+	n_map     int
+	n_reduce  int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -42,9 +45,12 @@ type Coordinator struct {
 // Get an map task that is available to be assigned
 func (c *Coordinator) GetAvailableMapTask() *InternalTask {
 	var map_task_found *InternalTask
-	for i := 0; i < len(c.map_tasks); i++ {
-		if c.map_tasks[i].status == Unassigned {
-			map_task_found = &c.map_tasks[i]
+	for i := 0; i < c.n_map; i++ {
+		if c.all_tasks[i].task.Type != Mapper {
+			log.Fatalf("Expect Mapper task at index %d but actually saw %v", i, c.all_tasks[i])
+		}
+		if c.all_tasks[i].status == Unassigned {
+			map_task_found = &c.all_tasks[i]
 			break
 		}
 	}
@@ -54,12 +60,13 @@ func (c *Coordinator) GetAvailableMapTask() *InternalTask {
 // Get a reduce task that is available to be assigned
 func (c *Coordinator) GetAvailableReduceTask() *InternalTask {
 	var reduce_task_found *InternalTask
-	n_map := len(c.map_tasks)
-
-	for i := 0; i < len(c.reduce_tasks); i++ {
+	for i := c.n_map; i < len(c.all_tasks); i++ {
 		// The 2nd condition checks that the reduce task has received all the input from all the mappers.
-		if c.reduce_tasks[i].status == Unassigned && n_map == len(c.reduce_tasks[i].task.ReduceTask.InputFiles) {
-			reduce_task_found = &c.reduce_tasks[i]
+		if c.all_tasks[i].task.Type != Reducer {
+			log.Fatalf("Expect reducer task at index %d but actually saw %v", i, c.all_tasks[i])
+		}
+		if c.all_tasks[i].status == Unassigned && c.n_map == len(c.all_tasks[i].task.ReduceTask.InputFiles) {
+			reduce_task_found = &c.all_tasks[i]
 			break
 		}
 	}
@@ -90,11 +97,11 @@ func (c *Coordinator) GetTask(request *GetTaskRequest, reply *GetTaskResponse) e
 
 func (c *Coordinator) SendMapOutputToReduceTasks(map_task_id int, temp_files map[int]string) error {
 	for r_shard, fname := range temp_files {
-		if !(r_shard >= 0 && r_shard <= len(c.reduce_tasks)) {
+		if !(r_shard >= 0 && r_shard <= c.n_reduce) {
 			return errors.New(fmt.Sprintf("Invalid reduce shard number %d", r_shard))
 		}
 
-		reduce_task := &c.reduce_tasks[r_shard].task.ReduceTask
+		reduce_task := &c.all_tasks[c.n_map + r_shard].task.ReduceTask
 		old_fname, exists := reduce_task.InputFiles[map_task_id]
 		if exists {
 			log.Printf("Overwriting existing input for reduce task %d from map task %d: %s", r_shard, map_task_id, old_fname)
@@ -119,37 +126,37 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 	defer c.tasks_mu.Unlock()
 
 	task_done := &request.TaskDone
+	// The shard id of the task
 	var task_id int
+	// The internal index into the c.all_tasks list
+	var task_index int
+	
 	if task_done.Type == Mapper {
 		task_id = task_done.MapTask.TaskId
-		if !(task_id >= 0 && task_id < len(c.map_tasks)) {
-			return errors.New("Invalid map task id")
+		task_index = task_id
+		if !(task_id >= 0 && task_id < c.n_map) {
+			return errors.New(fmt.Sprintf("Invalid map task id %d", task_id))
 		}
-		internal_task := &c.map_tasks[task_id]
-		if internal_task.worker_id != request.WorkerId {
-			return errors.New("Worker id is not supposed to be working on Map task")
-		}
-		internal_task.status = Done
+	} else {
+		task_id = task_done.ReduceTask.TaskId
+		task_index = task_id + c.n_map
+		if !(task_id >= 0 && task_id < c.n_reduce) {
+			return errors.New(fmt.Sprintf("Invalid reduce task id %d", task_id))
+		}			
+	}
+
+
+	internal_task := &c.all_tasks[task_index]
+	if internal_task.worker_id != request.WorkerId {
+		return errors.New("Worker id is not supposed to be working on task")
+	}
+	internal_task.status = Done
+	if task_done.Type == Mapper {
 		err := c.SendMapOutputToReduceTasks(task_id, request.TempFiles)
 		if err != nil {
 			reply.Ok = false
 			return err
 		}
-	} else {
-		// Type must be reducer
-		if task_done.Type != Reducer {
-			log.Fatalf("Expected Reducer task type but actually saw: %v", task_done.Type)
-		}
-
-		task_id = task_done.ReduceTask.TaskId
-		if !(task_id >= 0 && task_id < len(c.reduce_tasks)) {
-			return errors.New("Invalid reduce task id")
-		}
-		internal_task := &c.reduce_tasks[task_id]
-		if internal_task.worker_id != request.WorkerId {
-			return errors.New("Worker id is not supposed to be working on Reduce task")
-		}
-		internal_task.status = Done
 	}
 
 	if DEBUG {
@@ -159,26 +166,23 @@ func (c *Coordinator) TaskDone(request *TaskDoneRequest, reply *TaskDoneResponse
 	return nil
 }
 
-
 // Find and unassign any orphaned tasks, for which we implement using a proxy of "10s has passed since task assignment"
 func (c *Coordinator) CleanUpOrphanTasks() {
 	MAX_TASK_WAIT_TIME := time.Second * 10
 
 	for {
 		c.tasks_mu.Lock()
-		all_tasks := append(c.map_tasks, c.reduce_tasks...)
-		for i := 0; i < len(all_tasks); i++ {
-			if all_tasks[i].status == Assigned && all_tasks[i].assigned_time.Before(time.Now().Add(-MAX_TASK_WAIT_TIME)) {
-				all_tasks[i].status = Unassigned
-				all_tasks[i].worker_id = ""
-				all_tasks[i].assigned_time = time.Time{}
+		for i := 0; i < len(c.all_tasks); i++ {
+			if c.all_tasks[i].status == Assigned && c.all_tasks[i].assigned_time.Before(time.Now().Add(-MAX_TASK_WAIT_TIME)) {
+				c.all_tasks[i].status = Unassigned
+				c.all_tasks[i].worker_id = ""
+				c.all_tasks[i].assigned_time = time.Time{}
 			}
 		}
 		c.tasks_mu.Unlock()
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 1)
 	}
 }
-
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -206,7 +210,7 @@ func (c *Coordinator) Done() bool {
 
 	c.tasks_mu.Lock()
 	defer c.tasks_mu.Unlock()
-	for _, itask := range append(c.map_tasks, c.reduce_tasks...) {
+	for _, itask := range c.all_tasks {
 		if itask.status != Done {
 			done = false
 			break
@@ -245,20 +249,25 @@ func NewReduceTask(task_id int, n_mapper int) WorkerTask {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Make len(files) number of map tasks and nReduce number of reduce tasks
-	c := Coordinator{map_tasks: make([]InternalTask, len(files)), reduce_tasks: make([]InternalTask, nReduce)}
+	all_tasks := make([]InternalTask, len(files)+nReduce)
 	for i := 0; i < len(files); i++ {
-		c.map_tasks[i] =
+		all_tasks[i] =
 			InternalTask{
-				task: NewMapTask(i, files[i], nReduce),
+				task:   NewMapTask(i, files[i], nReduce),
 				status: Unassigned,
 			}
 	}
-	for i := 0; i < nReduce; i++ {
-		c.reduce_tasks[i] =
+	for i := len(files); i < len(files)+nReduce; i++ {
+		all_tasks[i] =
 			InternalTask{
-				task: NewReduceTask(i, len(files)),
+				task:   NewReduceTask(i - len(files), len(files)),
 				status: Unassigned,
 			}
+	}
+	c := Coordinator{
+		all_tasks: all_tasks,
+		n_map:     len(files),
+		n_reduce:  nReduce,
 	}
 
 	// Your code here.
