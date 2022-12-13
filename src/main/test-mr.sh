@@ -111,12 +111,14 @@ rm -f mr-out*
 
 echo '***' Starting indexer test.
 
-$TIMEOUT ../mrcoordinator ../pg*txt &
+$TIMEOUT ../mrcoordinator ../pg*txt & pid=$!
 sleep 1
 
 # start multiple workers
 $TIMEOUT ../mrworker ../../mrapps/indexer.so &
 $TIMEOUT ../mrworker ../../mrapps/indexer.so
+
+wait $pid
 
 sort mr-out* | grep . > mr-indexer-all
 if cmp mr-indexer-all mr-correct-indexer.txt
