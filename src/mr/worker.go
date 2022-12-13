@@ -1,5 +1,6 @@
 package mr
 
+import "errors"
 import "fmt"
 import "log"
 import "net/rpc"
@@ -9,6 +10,10 @@ import "os"
 import "io/ioutil"
 import "sort"
 import "strconv"
+import "strings"
+import "time"
+
+var ServerConnectionErrorStr string = "Connection Error"
 
 //
 // Map functions return a slice of KeyValue.
@@ -51,7 +56,7 @@ func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) map[int]string {
 		temp_files[i] = fname
 		file, err := os.Create(fname)
 		if err != nil {
-			log.Fatalf("cannot open %v", fname)
+			log.Fatalf("Cannot open %s for write", fname)
 		}
 		defer file.Close()
 		encoders[i] = json.NewEncoder(file)
@@ -69,7 +74,7 @@ func write_kvs(kvs []KeyValue, map_task_id int, n_reduce int) map[int]string {
 func read_kvs(fname string) []KeyValue {
 	file, err := os.Open(fname)
 	if err != nil {
-		log.Fatalf("Cannot open %v", fname)
+		log.Fatalf("Cannot open %s to read KVs from", fname)
 	}
 	defer file.Close()
 	dec := json.NewDecoder(file)
@@ -92,7 +97,7 @@ func handle_map_task(worker_id string, mapf func(string, string) []KeyValue, map
 	filename := map_task.InputFile
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalf("cannot open %v", filename)
+		log.Fatalf("Cannot open %s for map task", filename)
 	}
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
@@ -154,10 +159,13 @@ func Worker(mapf func(string, string) []KeyValue,
 		worker_task, err := GetTask(worker_id)
 
 		if err != nil {
-			if DEBUG {
-				fmt.Printf("No more tasks. Exiting.")
+			if strings.HasPrefix(err.Error(), ServerConnectionErrorStr) {
+				return
 			}
-			return
+			// Other reason must be RPC level failure such as server running out of tasks.
+			// Sleep a bit before fetching again.
+			time.Sleep(1 * time.Second)
+			continue
 		}
 		if worker_task.Type == Mapper {
 			handle_map_task(worker_id, mapf, &worker_task.MapTask)
@@ -175,11 +183,11 @@ func GetTask(worker_id string) (WorkerTask, error) {
 	ok, err := call("Coordinator.GetTask", &request, &reply)
 	if ok {
 		if DEBUG {
-		if reply.Task.Type == Mapper {
-			fmt.Printf("Get back Map task with file: %s\n", reply.Task.MapTask.InputFile)
-		} else {
-			fmt.Printf("Get back Reduce task with file: %v\n", reply.Task.ReduceTask.InputFiles)
-		}
+			if reply.Task.Type == Mapper {
+				fmt.Printf("Get back Map task with file: %s\n", reply.Task.MapTask.InputFile)
+			} else {
+				fmt.Printf("Get back Reduce task with file: %v\n", reply.Task.ReduceTask.InputFiles)
+			}
 		}
 		return reply.Task, nil
 	}
@@ -197,14 +205,14 @@ func TaskDone(worker_id string, task_done WorkerTask, temp_files map[int]string)
 //
 // send an RPC request to the coordinator, wait for the response.
 // usually returns true.
-// returns false if something goes wrong.
-//
+// returns false if something goes wrong, such as a server level error like connection refused,
+// or rpc level error.
 func call(rpcname string, args interface{}, reply interface{}) (bool, error) {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
-		log.Fatal("dialing:", err)
+		return false, errors.New(ServerConnectionErrorStr)
 	}
 	defer c.Close()
 
@@ -212,7 +220,8 @@ func call(rpcname string, args interface{}, reply interface{}) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-
-	fmt.Println(err)
+	if DEBUG {
+		fmt.Println(err)
+	}
 	return false, err
 }
