@@ -253,28 +253,26 @@ func NewReduceTask(task_id int, n_mapper int) WorkerTask {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	// Make len(files) number of map tasks and nReduce number of reduce tasks
-	all_tasks := make([]InternalTask, len(files)+nReduce)
-	for i := 0; i < len(files); i++ {
-		all_tasks[i] =
+	c := Coordinator{
+		all_tasks: make([]InternalTask, len(files)+nReduce),
+		n_map:     len(files),
+		n_reduce:  nReduce,
+	}
+
+	for i := 0; i < c.n_map; i++ {
+		c.all_tasks[i] =
 			InternalTask{
 				task:   NewMapTask(i, files[i], nReduce),
 				status: Unassigned,
 			}
 	}
-	for i := len(files); i < len(files)+nReduce; i++ {
-		all_tasks[i] =
+	for i := c.n_map; i < c.n_map + c.n_reduce; i++ {
+		c.all_tasks[i] =
 			InternalTask{
-				task:   NewReduceTask(i - len(files), len(files)),
+				task:   NewReduceTask(i - c.n_map, c.n_reduce),
 				status: Unassigned,
 			}
 	}
-	c := Coordinator{
-		all_tasks: all_tasks,
-		n_map:     len(files),
-		n_reduce:  nReduce,
-	}
-
-	// Your code here.
 
 	c.server()
 	return &c
